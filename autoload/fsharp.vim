@@ -3,7 +3,6 @@ if polyglot#init#is_disabled(expand('<sfile>:p'), 'fsharp', 'autoload/fsharp.vim
 endif
 
 " Vim autoload functions
-
 if exists('g:loaded_autoload_fsharp')
     finish
 endif
@@ -239,19 +238,7 @@ function! fsharp#loadConfig()
     endif
 
     if !exists('g:fsharp#fsautocomplete_command')
-        let s:fsac = fnamemodify(s:script_root_dir . "fsac/fsautocomplete.dll", ":p")
-
-        " check if FSAC exists
-        if empty(glob(s:fsac))
-            echoerr "FSAC not found. :FSharpUpdateFSAC to download."
-            let &cpo = s:cpo_save
-            finish
-        endif
-
-        let g:fsharp#fsautocomplete_command =
-            \ ['dotnet', s:fsac,
-                \ '--background-service-enabled'
-            \ ]
+        let g:fsharp#fsautocomplete_command = ['fsautocomplete', '--background-service-enabled']
     endif
     if !exists('g:fsharp#use_recommended_server_config')
         let g:fsharp#use_recommended_server_config = 1
@@ -264,7 +251,7 @@ function! fsharp#loadConfig()
         let g:fsharp#automatic_reload_workspace = 1
     endif
     if !exists('g:fsharp#show_signature_on_cursor_move')
-        let g:fsharp#show_signature_on_cursor_move = 1
+        let g:fsharp#show_signature_on_cursor_move = 0
     endif
     if !exists('g:fsharp#fsi_command')
         let g:fsharp#fsi_command = "dotnet fsi"
@@ -292,6 +279,7 @@ function! fsharp#loadConfig()
 
     " backend configuration
     if g:fsharp#backend == 'languageclient-neovim'
+        let $DOTNET_ROLL_FORWARD='LatestMajor'
         if !exists('g:LanguageClient_serverCommands')
             let g:LanguageClient_serverCommands = {}
         endif
@@ -328,6 +316,29 @@ function! fsharp#loadConfig()
     else
         if g:fsharp#backend != 'disable'
             echoerr "[FSAC] Invalid backend: " . g:fsharp#backend
+        endif
+    endif
+
+    " FSI keymaps
+    if g:fsharp#fsi_keymap == "vscode"
+        if has('nvim')
+            let g:fsharp#fsi_keymap_send   = "<M-cr>"
+            let g:fsharp#fsi_keymap_toggle = "<M-@>"
+        else
+            let g:fsharp#fsi_keymap_send   = "<esc><cr>"
+            let g:fsharp#fsi_keymap_toggle = "<esc>@"
+        endif
+    elseif g:fsharp#fsi_keymap == "vim-fsharp"
+        let g:fsharp#fsi_keymap_send   = "<leader>i"
+        let g:fsharp#fsi_keymap_toggle = "<leader>e"
+    elseif g:fsharp#fsi_keymap == "custom"
+        let g:fsharp#fsi_keymap = "none"
+        if !exists('g:fsharp#fsi_keymap_send')
+            echoerr "g:fsharp#fsi_keymap_send is not set"
+        elseif !exists('g:fsharp#fsi_keymap_toggle')
+            echoerr "g:fsharp#fsi_keymap_toggle is not set"
+        else
+            let g:fsharp#fsi_keymap = "custom"
         endif
     endif
 
@@ -398,39 +409,6 @@ endfunction
 
 " .NET/F# specific operations
 
-function! s:findWorkspace(dir, cont)
-    let s:cont_findWorkspace = a:cont
-    function! s:callback_findWorkspace(result)
-        let result = a:result
-        let content = json_decode(result.result.content)
-        if len(content.Data.Found) < 1
-            return []
-        endif
-        let workspace = { 'Type': 'none' }
-        for found in content.Data.Found
-            if workspace.Type == 'none'
-                let workspace = found
-            elseif found.Type == 'solution'
-                if workspace.Type == 'project'
-                    let workspace = found
-                else
-                    let curLen = len(workspace.Data.Items)
-                    let newLen = len(found.Data.Items)
-                    if newLen > curLen
-                        let workspace = found
-                    endif
-                endif
-            endif
-        endfor
-        if workspace.Type == 'solution'
-            call s:cont_findWorkspace([workspace.Data.Path])
-        else
-            call s:cont_findWorkspace(workspace.Data.Fsprojs)
-        endif
-    endfunction
-    call s:workspacePeek(a:dir, g:fsharp#workspace_mode_peek_deep_level, g:fsharp#exclude_project_directories, function("s:callback_findWorkspace"))
-endfunction
-
 let s:workspace = []
 
 function! fsharp#handle_notifyWorkspace(payload) abort
@@ -497,8 +475,17 @@ function! fsharp#OnCursorMove()
 endfunction
 
 function! fsharp#showF1Help()
-    let result = s:f1Help(expand('%:p'), line('.') - 1, col('.') - 1)
-    echo result
+    function! s:callback_showF1Help(result)
+        let result = a:result
+        if exists('result.result.content')
+            let content = json_decode(result.result.content)
+            if exists('content.Data')
+                let url = 'https://docs.microsoft.com/en-us/dotnet/api/' . substitute(content.Data, '#ctor', '-ctor', 'g')
+                echo url
+            endif
+        endif
+    endfunction
+    call s:f1Help(expand('%:p'), line('.') - 1, col('.') - 1, function("s:callback_showF1Help"))
 endfunction
 
 function! s:hover()
@@ -521,39 +508,6 @@ function! fsharp#showTooltip()
     endfunction
     " show hover only if signature exists for the current position
     call s:signature(expand('%:p'), line('.') - 1, col('.') - 1, function("s:callback_showTooltip"))
-endfunction
-
-
-" FSAC update utils
-
-function! s:update_win()
-    echom "[FSAC] Downloading FSAC. This may take a while..."
-    let script = s:script_root_dir . "install.ps1"
-    call system('powershell -ExecutionPolicy Unrestricted ' . script . " update")
-endfunction
-
-function! s:update_unix()
-    echom "[FSAC] Downloading FSAC. This may take a while..."
-    let zip = s:script_root_dir . "fsac.zip"
-    call system(
-        \ 'curl -fLo ' . zip .  ' --create-dirs ' .
-        \ '"https://github.com/fsharp/FsAutoComplete/releases/latest/download/fsautocomplete.netcore.zip"'
-        \ )
-    if v:shell_error == 0
-        call system('unzip -o -d ' . s:script_root_dir . "/fsac " . zip)
-        call system('find ' . s:script_root_dir . '/fsac' . ' -type f -exec chmod 777 \{\} \;')
-        echom "[FSAC] Updated FsAutoComplete"
-    else
-        echom "[FSAC] Failed to update FsAutoComplete"
-    endif
-endfunction
-
-function! fsharp#updateFSAC(...)
-    if has('win32') && !has('win32unix')
-        call s:update_win()
-    else
-        call s:update_unix()
-    endif
 endfunction
 
 

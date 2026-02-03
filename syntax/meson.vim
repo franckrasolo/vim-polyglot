@@ -60,9 +60,11 @@ syn match   mesonEscape	"\\$"
 " Meson only supports integer numbers
 " http://mesonbuild.com/Syntax.html#numbers
 syn match   mesonNumber	"\<\d\+\>"
+syn match   mesonNumber	"\<0x\x\+\>"
+syn match   mesonNumber	"\<0o\o\+\>"
 
 " booleans
-syn keyword mesonConstant	false true
+syn keyword mesonBoolean	false true
 
 " Built-in functions
 syn keyword mesonBuiltin
@@ -70,6 +72,7 @@ syn keyword mesonBuiltin
   \ add_global_link_arguments
   \ add_languages
   \ add_project_arguments
+  \ add_project_dependencies
   \ add_project_link_arguments
   \ add_test_setup
   \ alias_target
@@ -101,6 +104,8 @@ syn keyword mesonBuiltin
   \ install_headers
   \ install_man
   \ install_subdir
+  \ install_symlink
+  \ install_emptydir
   \ is_disabler
   \ is_variable
   \ jar
@@ -116,6 +121,7 @@ syn keyword mesonBuiltin
   \ shared_library
   \ shared_module
   \ static_library
+  \ structured_sources
   \ subdir
   \ subdir_done
   \ subproject
@@ -126,6 +132,7 @@ syn keyword mesonBuiltin
   \ vcs_tag
   \ warning
   \ range
+  \ debug
 
 if exists("meson_space_error_highlight")
   " trailing whitespace
@@ -138,15 +145,15 @@ endif
 " The default highlight links.  Can be overridden later.
 hi def link mesonStatement	Statement
 hi def link mesonConditional	Conditional
-hi def link mesonRepeat	Repeat
+hi def link mesonRepeat		Repeat
 hi def link mesonOperator	Operator
 hi def link mesonComment	Comment
 hi def link mesonTodo		Todo
-hi def link mesonString	String
-hi def link mesonEscape	Special
-hi def link mesonNumber	Number
+hi def link mesonString		String
+hi def link mesonEscape		Special
+hi def link mesonNumber		Number
 hi def link mesonBuiltin	Function
-hi def link mesonConstant	Number
+hi def link mesonBoolean	Boolean
 if exists("meson_space_error_higlight")
   hi def link mesonSpaceError	Error
 endif
